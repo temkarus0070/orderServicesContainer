@@ -7,7 +7,7 @@ services:
       - 6831:6831/udp
       - 6832:6832/udp
       - 16686:16686
-      - 14268:14268 
+      - 14268:14268
   zookeeper:
     image: confluentinc/cp-zookeeper:latest
     environment:
@@ -15,7 +15,7 @@ services:
       ZOOKEEPER_TICK_TIME: 2000
     ports:
       - 22181:2181
-  
+
   kafka:
     image: confluentinc/cp-kafka:latest
     depends_on:
@@ -25,10 +25,25 @@ services:
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092,
+        PLAINTEXT_WEB://kafka:19092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT, PLAINTEXT_WEB:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+
+  kafdrop:
+    image: obsidiandynamics/kafdrop
+    container_name: kafdrop
+    restart: "no"
+    ports:
+      - "9000:9000"
+    environment:
+      KAFKA_BROKERCONNECT: "kafka:9092"
+      JVM_OPTS: "-Xms32M -Xmx128M -Xss256K -XX:-TieredCompilation
+        -XX:+UseStringDeduplication -noverify"
+    depends_on:
+      - kafka
+
   postgress:
     image: postgres
     environment:
@@ -36,41 +51,52 @@ services:
       POSTGRES_PASSWORD: "postgres"
       POSTGRES_DB: "Orders"
     ports:
-      - "5432:5432"     
+      - "5432:5432"
+
   payservice:
-    image: org/payservice
+    build: ./PayService
     ports:
-     - 9089:9089
+      - 9089:9089
     environment:
-      JAEGER_HOST: jaegerService        
+      JAEGER_HOST: jaegerService
+
   ordergenerator:
-    image: org/generatorservice
+    build: ./OrderGenerator
     ports:
       - 9081:9081
     environment:
-      JAEGER_HOST: jaegerService     
+      JAEGER_HOST: jaegerService
+
   orderpersistence:
-    image: org/persistenceservice
+    build: ./OrderPersistence
     ports:
       - 9087:9087
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgress:5432/Orders
       KAFKA_SERVER: kafka:9092
-      PAY_SERVICE: http://payservice:9089  
+      PAY_SERVICE: http://payservice:9089
       JAEGER_HOST: jaegerService
+    depends_on:
+      - kafka
+      - postgress    
+
   analyticservice:
-    image: org/analyticservice
+    build: ./analyticOrderService
     ports:
       - 9086:9086
     environment:
       KAFKA_SERVER: kafka:9092
-      JAEGER_HOST: jaegerService  
-  senderService:
-    image: org/senderservice
+      JAEGER_HOST: jaegerService
+    depends_on:
+      - kafka  
+
+  senderservice:
+    build: ./OrderSender
     ports:
-      - 8099:8099
+      - 8199:8099
     environment:
       ORDER_SERVER: http://ordergenerator:9081/order
       KAFKA_SERVER: kafka:9092
-      JAEGER_HOST: jaegerService        
-       
+      JAEGER_HOST: jaegerService
+    depends_on:
+      - kafka    
